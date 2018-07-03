@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 setup(
     name="itask",
     packages=["itask"],
-    version="0.1.3",
+    version="0.1.4",
     description="Interactive shell for taskwarrior",
     author="Michael Hoff",
     author_email="mail@michael-hoff.net",
