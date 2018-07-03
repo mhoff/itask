@@ -57,7 +57,8 @@ class ITaskCompleter(Completer):
         if pref_match:
             yield from filter(match, (make_completion(f"{pref_match[0]}{project}") for project in projects))
         elif self._indirect_projects:
-            yield from filter(match, [make_completion("project:", display="project:...")])
+            yield from filter(match, [make_completion("project:", display="project:...",
+                                                      display_meta="assign task to project")])
         else:
             yield from filter(match, (make_completion(f"project:{project}") for project in projects))
 
@@ -78,6 +79,7 @@ class ITask(object):
         add_bool_argument(parser, '--complete-while-typing', default=True)
         add_bool_argument(parser, '--complete-indirect-tags', default=True)
         add_bool_argument(parser, '--complete-indirect-projects', default=True)
+        add_bool_argument(parser, '--complete-show-meta-always', default=True)
 
         return ITask(parser.parse_args()).loop()
 
@@ -100,7 +102,9 @@ class ITask(object):
 
         # TODO persist history
         if prompt_toolkit.__version__ >= '2.0.0':
+            # TODO verify display_completions_in_columns does work
             self._prompt_session = PromptSession(completer=self._completer,
+                                                 display_completions_in_columns=self._cl_args.complete_show_meta_always,
                                                  complete_while_typing=cl_args.complete_while_typing)
         else:
             self._history = InMemoryHistory()
@@ -115,6 +119,7 @@ class ITask(object):
         else:
             return shlex.split(prompt(message, default=default, completer=self._completer,
                                       history=self._history,
+                                      display_completions_in_columns=self._cl_args.complete_show_meta_always,
                                       complete_while_typing=self._cl_args.complete_while_typing))
 
     def macro_add(self, *args, pre_report="list"):
