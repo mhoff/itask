@@ -194,11 +194,8 @@ class ITask(object):
             while True:
                 try:
                     inp = self.prompt("task> ")
-                    if len(inp) == 0:
-                        self.error("empty input")
-                        continue
                     try:
-                        if inp[0].startswith(self._cl_args.macro_prefix):
+                        if inp and inp[0].startswith(self._cl_args.macro_prefix):
                             (macro_name, *args) = inp
                             if macro_name in self._macros:
                                 try:
