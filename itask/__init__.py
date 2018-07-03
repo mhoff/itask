@@ -5,7 +5,7 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.shortcuts import prompt
 from prompt_toolkit.completion import Completer, Completion
 
-from itask.utils import task_exec, task_get, task_get_lines
+from itask.utils import task_exec, task_get, task_get_lines, TaskError
 
 if prompt_toolkit.__version__ >= '2.0.0':
     from prompt_toolkit import PromptSession, print_formatted_text
@@ -134,8 +134,10 @@ class ITask(object):
             print("--- closing inbox ---")
 
     def macro_iter(self, *args, pre_report="list", per_report="information", post_callback=None):
-        task_exec(*args, pre_report)
         tids = task_get_lines(*args, "_ids")
+        if not tids:
+            return
+        task_exec(*args, pre_report)
         try:
             # TODO use progress bar?
             for tid in tids:
@@ -145,7 +147,8 @@ class ITask(object):
                 if len(inp) > 0:
                     task_exec(*cmds, *inp)
                 if post_callback:
-                    post_callback(tid, *args)
+                    post_callback(tid)
+                # TODO show only modifications?
                 task_exec(per_report, tid)
         except EOFError:
             print("--- stopping review ---")
@@ -158,8 +161,10 @@ class ITask(object):
                         post_callback=lambda tid: task_exec(tid, "modify", self._neg_inbox_tag, output=False))
 
     def macro_edit(self, *args, pre_report="list"):
-        task_exec(*args, pre_report)
         tids = task_get_lines(*args, "_ids")
+        if not tids:
+            return
+        task_exec(*args, pre_report)
         try:
             for tid in tids:
                 task_exec("information", tid)
@@ -185,15 +190,18 @@ class ITask(object):
                     if len(inp) == 0:
                         self.error("empty input")
                         continue
-                    if inp[0].startswith(self._cl_args.macro_prefix):
-                        (macro, *args) = inp
-                        if macro in self._macros:
-                            self._macros[macro](*args)
+                    try:
+                        if inp[0].startswith(self._cl_args.macro_prefix):
+                            (macro, *args) = inp
+                            if macro in self._macros:
+                                self._macros[macro](*args)
+                            else:
+                                self.error("unknown macro")
+                                continue
                         else:
-                            self.error("unknown macro")
-                            continue
-                    else:
-                        task_exec(*inp)
+                            task_exec(*inp)
+                    except TaskError as e:
+                        self.error(str(e))
                 except KeyboardInterrupt:
                     pass
         except EOFError:
