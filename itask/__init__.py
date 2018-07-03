@@ -92,6 +92,8 @@ class ITask(object):
         self._macros = {f"{cl_args.macro_prefix}{k}": v for k, v in {
             'inbox-add': self.macro_inbox_add,
             'inbox-review': self.macro_inbox_review,
+            'add': self.macro_add,
+            'iter': self.macro_iter,
             'edit': self.macro_edit,
         }.items()}
 
@@ -118,12 +120,12 @@ class ITask(object):
                                       history=self._history,
                                       complete_while_typing=self._cl_args.complete_while_typing))
 
-    def macro_inbox_add(self, *args, pre_report="list"):
-        task_exec(self._pos_inbox_tag, *args, pre_report)
-        cmds = ("add", self._pos_inbox_tag, *args)
+    def macro_add(self, *args, pre_report="list"):
+        task_exec(*args, pre_report)
+        cmds = ("add", *args)
         try:
             while True:
-                inp = self.prompt("{}> ".format(' '.join(cmds)))
+                inp = self.prompt("%add task {}> ".format(' '.join(cmds)))
                 if len(inp) == 0:
                     self.error("empty input")
                     continue
@@ -131,35 +133,44 @@ class ITask(object):
         except EOFError:
             print("--- closing inbox ---")
 
-    def macro_inbox_review(self, *args, pre_report="list"):
-        task_exec(self._pos_inbox_tag, *args, pre_report)
-        tids = task_get_lines(self._pos_inbox_tag, *args, "_ids")
+    def macro_iter(self, *args, pre_report="list", per_report="information", post_callback=None):
+        task_exec(*args, pre_report)
+        tids = task_get_lines(*args, "_ids")
         try:
+            # TODO use progress bar?
             for tid in tids:
-                # TODO use custom report
-                task_exec("information", tid)
-                cmds = [tid, *args]
-                inp = self.prompt("{}> ".format(' '.join(cmds)))
+                task_exec(per_report, tid)
+                cmds = [tid]
+                inp = self.prompt("%iter task {}> ".format(' '.join(cmds)))
                 if len(inp) > 0:
                     task_exec(*cmds, *inp)
-                task_exec(tid, "modify", self._neg_inbox_tag, output=False)
-                # TODO use custom report
-                task_exec("information", tid)
+                if post_callback:
+                    post_callback(tid, *args)
+                task_exec(per_report, tid)
         except EOFError:
             print("--- stopping review ---")
 
-    def macro_edit(self, *args):
-        tids = task_get_lines("_ids", *args)
+    def macro_inbox_add(self, *args, pre_report="list"):
+        self.macro_add(self._pos_inbox_tag, *args, pre_report=pre_report)
+
+    def macro_inbox_review(self, *args, pre_report="list", per_report="information"):
+        self.macro_iter(self._pos_inbox_tag, *args, pre_report=pre_report, per_report=per_report,
+                        post_callback=lambda tid: task_exec(tid, "modify", self._neg_inbox_tag, output=False))
+
+    def macro_edit(self, *args, pre_report="list"):
+        task_exec(*args, pre_report)
+        tids = task_get_lines(*args, "_ids")
         try:
             for tid in tids:
                 task_exec("information", tid)
                 descr = task_get("_get", f"{tid}.description")
+                cmds = [tid, "modify"]
                 try:
-                    inp = self.prompt(f"%edit {tid}> ", default=descr)
+                    inp = self.prompt(f"%edit task {' '.join(cmds)}> ", default=descr)
                     if len(inp) > 0:
-                        task_exec(tid, "modify", *inp)
+                        task_exec(tid, *cmds, *inp)
                 except KeyboardInterrupt:
-                    # TODO not very intuitive behaviour
+                    # TODO not very intuitive behaviour?
                     print("--- skipping edit ---")
                 task_exec("information", tid)
         except EOFError:
