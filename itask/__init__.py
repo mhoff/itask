@@ -67,16 +67,17 @@ class ITask(object):
     def main():
         parser = argparse.ArgumentParser()
 
-        def add_bool_argument(parser, opt):
+        def add_bool_argument(parser, opt, default):
             dest = opt[2:].replace('-', '_')
             parser.add_argument(opt, dest=dest, action='store_true')
             parser.add_argument(f'{opt[:2]}no-{opt[2:]}', dest=dest, action='store_false')
+            parser.set_defaults(**{dest: default})
 
         parser.add_argument("--inbox-tag", type=str, default="inbox")
         parser.add_argument("--macro-prefix", type=str, default="%")
-        add_bool_argument(parser, '--complete-while-typing')
-        add_bool_argument(parser, '--complete-indirect-tags')
-        add_bool_argument(parser, '--complete-indirect-projects')
+        add_bool_argument(parser, '--complete-while-typing', default=True)
+        add_bool_argument(parser, '--complete-indirect-tags', default=True)
+        add_bool_argument(parser, '--complete-indirect-projects', default=True)
 
         return ITask(parser.parse_args()).loop()
 
