@@ -77,10 +77,8 @@ class ITask(object):
         parser.add_argument("--inbox-tag", type=str, default="inbox")
         parser.add_argument("--macro-prefix", type=str, default="%")
         add_bool_argument(parser, '--complete-while-typing')
-        parser.add_argument("--complete-indirect-tags", dest='complete_indirect_tags', action='store_true')
-        parser.add_argument("--no-complete-indirect-tags", dest='complete_indirect_tags', action='store_false')
-        parser.add_argument("--complete-indirect-projects", dest='complete_indirect_projects', action='store_true')
-        parser.add_argument("--no-complete-indirect-projects", dest='complete_indirect_projects', action='store_false')
+        add_bool_argument(parser, '--complete-indirect-tags')
+        add_bool_argument(parser, '--complete-indirect-projects')
 
         return ITask(parser.parse_args()).loop()
 
