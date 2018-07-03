@@ -4,6 +4,8 @@ import prompt_toolkit
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.shortcuts import prompt
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.token import Token
+from prompt_toolkit.styles import style_from_dict
 
 from itask.utils import task_exec, task_get, task_get_lines, TaskError
 
@@ -112,17 +114,24 @@ class ITask(object):
                                                  complete_while_typing=cl_args.complete_while_typing)
         else:
             self._history = InMemoryHistory()
+            self._prompt_style = style_from_dict({
+                Token.RPrompt: 'bg:#ff0066 #ffffff',
+            })
 
         self._cl_args = cl_args
         self._pos_inbox_tag = f"+{cl_args.inbox_tag}"
         self._neg_inbox_tag = f"-{cl_args.inbox_tag}"
 
-    def prompt(self, message, default=""):
+    def prompt(self, message, default="", rmessage=None):
         if prompt_toolkit.__version__ >= '2.0.0':
+            # TODO implement rmessage
             return shlex.split(self._prompt_session.prompt(message, default))
         else:
+            gen_rprompt = None if rmessage is None else (lambda _: [(Token, ' '),
+                                                                    (Token.RPrompt, f'macro: {rmessage}')])
             return shlex.split(prompt(message, default=default, completer=self._completer,
                                       history=self._history,
+                                      get_rprompt_tokens=gen_rprompt, style=self._prompt_style,
                                       display_completions_in_columns=self._cl_args.complete_show_meta_always,
                                       complete_while_typing=self._cl_args.complete_while_typing))
 
@@ -130,7 +139,7 @@ class ITask(object):
         task_exec(*args, pre_report)
         cmds = ("add", *args)
         while True:
-            inp = self.prompt(f"{name} task {' '.join(cmds)}> ")
+            inp = self.prompt(f"task {' '.join(cmds)}> ", rmessage=name)
             if len(inp) == 0:
                 self.error("empty input")
                 continue
@@ -146,7 +155,7 @@ class ITask(object):
             task_exec(per_report, tid)
             cmds = [tid]
             # TODO handle keyboard interrupt properly
-            inp = self.prompt(f"{name} task {' '.join(cmds)}> ")
+            inp = self.prompt(f"task {' '.join(cmds)}> ", rmessage=name)
             if len(inp) > 0:
                 task_exec(*cmds, *inp)
             if post_callback:
@@ -171,7 +180,7 @@ class ITask(object):
             descr = task_get("_get", f"{tid}.description")
             cmds = [tid, "modify"]
             try:
-                inp = self.prompt(f"{name} task {' '.join(cmds)}> ", default=descr)
+                inp = self.prompt(f"task {' '.join(cmds)}> ", rmessage=name, default=descr)
                 if len(inp) > 0:
                     task_exec(tid, *cmds, *inp)
             except KeyboardInterrupt:
