@@ -50,12 +50,10 @@ class ITaskCompleter(Completer):
                 yield from filter(match, ([make_completion(tag_prefix, display=f'{tag_prefix}...',
                                                            display_meta=f'{label} tag selector')]))
 
-        def prefixes(word, suffix=""):
-            return [f'{word[:i+1]}{suffix}' for i in range(len(word))]
-
         projects = task_get_lines("_projects")
 
-        pref_match = [f'{prefix}' for prefix in prefixes('project', suffix=":") if word.startswith(prefix)]
+        pref_match = [f'{keyword}' for keyword in [f'{pref}:' for pref in ['pro', 'proj', 'proje', 'projec', 'project']]
+                      if word.startswith(keyword)]
         if pref_match:
             yield from filter(match, (make_completion(f"{pref_match[0]}{project}") for project in projects))
         elif self._indirect_projects:
