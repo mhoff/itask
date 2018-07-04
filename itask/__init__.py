@@ -1,18 +1,21 @@
 import argparse
 import shlex
+
 import prompt_toolkit
 from prompt_toolkit.history import InMemoryHistory
-from prompt_toolkit.shortcuts import prompt
 from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.token import Token
-from prompt_toolkit.styles import style_from_dict
 
 from itask.utils import task_exec, task_get, task_get_lines, TaskError
 
 if prompt_toolkit.__version__ >= '2.0.0':
     from prompt_toolkit import PromptSession, print_formatted_text
+    from prompt_toolkit.styles import Style
+    from prompt_toolkit.shortcuts import CompleteStyle
 else:
     print_formatted_text = print
+    from prompt_toolkit.shortcuts import prompt
+    from prompt_toolkit.token import Token
+    from prompt_toolkit.styles import style_from_dict
 
 
 class ITaskCompleter(Completer):
@@ -151,9 +154,13 @@ class ITask(object):
         # TODO persist history
         if prompt_toolkit.__version__ >= '2.0.0':
             # TODO verify display_completions_in_columns does work
+            complete_style = None if cl_args.complete_show_meta_always else CompleteStyle.MULTI_COLUMN
             self._prompt_session = PromptSession(completer=self._completer,
-                                                 display_completions_in_columns=self._cl_args.complete_show_meta_always,
-                                                 complete_while_typing=cl_args.complete_while_typing)
+                                                 complete_while_typing=cl_args.complete_while_typing,
+                                                 complete_style=complete_style,
+                                                 style=Style.from_dict({
+                                                     'rprompt': 'bg:#ff0066 #ffffff',
+                                                 }))
         else:
             self._history = InMemoryHistory()
             self._prompt_style = style_from_dict({
@@ -166,8 +173,8 @@ class ITask(object):
 
     def prompt(self, message, default="", rmessage=None):
         if prompt_toolkit.__version__ >= '2.0.0':
-            # TODO implement rmessage
-            return shlex.split(self._prompt_session.prompt(message, default))
+            gen_rprompt = None if rmessage is None else (lambda: f'macro: {rmessage}')
+            return shlex.split(self._prompt_session.prompt(message, default, rprompt=gen_rprompt))
         else:
             gen_rprompt = None if rmessage is None else (lambda _: [(Token, ' '),
                                                                     (Token.RPrompt, f'macro: {rmessage}')])
