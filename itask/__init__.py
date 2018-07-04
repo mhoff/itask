@@ -16,72 +16,119 @@ else:
 
 
 class ITaskCompleter(Completer):
+    command_synopsis = {
+        'add': 'add [proj:...] [due:...] [+TAGs] TEXT',
+        'info': 'info [IDs]',
+        'delete': 'delete [IDs]',
+    }
+
     def __init__(self, macros, indirect_tags, indirect_projects):
-        self._macros = macros
         self._indirect_tags = indirect_tags
         self._indirect_projects = indirect_projects
+
+        cmds = [line.split(':') for line in task_get_lines('_zshcommands')]
+        self._cmds = [
+            self._completion(cmd, display=self.command_synopsis.get(cmd), meta=f"[{category}] {description}")
+            for (cmd, category, description) in cmds
+        ]
+
+        self._macros = [
+            self._completion(key, meta=macro.meta, display=macro.display)
+            for key, macro in macros.items()
+        ]
+
+        self._project_prefixes = [f'{prefix}:' for prefix in ['pro', 'proj', 'proje', 'projec', 'project']]
+        self._projects = {}
+        self._pos_tags = []
+        self._neg_tags = []
+        self._update_cache()
+
+    @staticmethod
+    def _completion(text, display=None, meta=None):
+        if display is None:
+            display = text
+        return Completion(text, display=display, display_meta=meta)
+
+    def _update_cache(self):
+        # TODO async
+        self._projects = {
+            prefix: [self._completion(f'{prefix}{project}') for project in task_get_lines("_projects")]
+            for prefix in self._project_prefixes
+        }
+
+        tags = list(filter(lambda t: not all(c.isupper() for c in t), task_get_lines("_tags")))
+        self._pos_tags = [self._completion(f'+{tag}') for tag in tags]
+        self._neg_tags = [self._completion(f'-{tag}') for tag in tags]
+
+    def _completions(self, word):
+        yield from self._cmds
+        yield from self._macros
+
+        for tag_prefix, label in [('+', 'positive'), ('-', 'negative')]:
+            assert len(tag_prefix) == 1
+            if word.startswith(tag_prefix) or not self._indirect_tags:
+                yield from self._pos_tags
+                yield from self._neg_tags
+            elif len(word) == 0:
+                yield self._completion(tag_prefix, display=f'{tag_prefix}...', meta=f'{label} tag selector')
+
+        pref_match = [prefix for prefix in self._project_prefixes
+                      if word.startswith(prefix)]
+        if pref_match:
+            yield from self._projects[pref_match[0]]
+        elif self._indirect_projects:
+            yield self._completion("project:", display="project:...", meta="assign task to project")
+        else:
+            yield from self._projects['project:']
 
     def get_completions(self, document, complete_event):
         word = document.get_word_under_cursor(WORD=True)
 
-        def make_completion(text, display=None, display_meta=None, append_whitespace=False):
-            if display is None:
-                display = text
-            if append_whitespace:
-                text = f'{text} '
-            return Completion(text, display=display, display_meta=display_meta, start_position=-len(word))
+        for completion in self._completions(word):
+            if completion.text.startswith(word):
+                completion.start_position = -len(word)
+                yield completion
 
-        def match(completion):
-            return completion.text.startswith(word)
 
-        yield from filter(match, [
-            make_completion('add', display_meta='add task'),
-            make_completion('list', display_meta='list tasks'),
-            make_completion('info', display='info [ID...]', display_meta='show tasks\' details'),
-            make_completion('delete', display='delete [ID...]', display_meta='delete tasks')
-        ])
+class Macro(object):
+    prefix = '%'
 
-        yield from filter(match, (make_completion(k) for k in self._macros.keys()))
+    def __init__(self, func, name, display, meta):
+        self.func = func
+        self.name = name
+        self.display = display
+        self.meta = meta
 
-        tags = filter(lambda t: not all(c.isupper() for c in t), task_get_lines("_tags"))
-        for tag_prefix, label in [('+', 'positive'), ('-', 'negative')]:
-            assert len(tag_prefix) == 1
-            if word.startswith(tag_prefix) or not self._indirect_tags:
-                yield from filter(match, (make_completion(f"{tag_prefix}{tag}") for tag in tags))
-            elif len(word) == 0:
-                yield from filter(match, ([make_completion(tag_prefix, display=f'{tag_prefix}...',
-                                                           display_meta=f'{label} tag selector')]))
+    def __get__(self, *args, **kwargs):
+        # update func reference to method object
+        self.func = self.func.__get__(*args, **kwargs)
+        return self
 
-        projects = task_get_lines("_projects")
+    def __call__(self, *args, **kwargs):
+        self.func(*args, **kwargs)
 
-        pref_match = [f'{keyword}' for keyword in [f'{pref}:' for pref in ['pro', 'proj', 'proje', 'projec', 'project']]
-                      if word.startswith(keyword)]
-        if pref_match:
-            yield from filter(match, (make_completion(f"{pref_match[0]}{project}") for project in projects))
-        elif self._indirect_projects:
-            yield from filter(match, [make_completion("project:", display="project:...",
-                                                      display_meta="assign task to project")])
-        else:
-            yield from filter(match, (make_completion(f"project:{project}") for project in projects))
+    @staticmethod
+    def wrapper(name, display=None, meta=None):
+        return lambda func: Macro(func, name, display, meta)
 
 
 class ITask(object):
+
     @staticmethod
     def main():
         parser = argparse.ArgumentParser()
 
-        def add_bool_argument(parser, opt, default):
+        def add_bool_argument(opt, default):
             dest = opt[2:].replace('-', '_')
             parser.add_argument(opt, dest=dest, action='store_true')
             parser.add_argument(f'{opt[:2]}no-{opt[2:]}', dest=dest, action='store_false')
             parser.set_defaults(**{dest: default})
 
         parser.add_argument("--inbox-tag", type=str, default="inbox")
-        parser.add_argument("--macro-prefix", type=str, default="%")
-        add_bool_argument(parser, '--complete-while-typing', default=True)
-        add_bool_argument(parser, '--complete-indirect-tags', default=True)
-        add_bool_argument(parser, '--complete-indirect-projects', default=True)
-        add_bool_argument(parser, '--complete-show-meta-always', default=True)
+        add_bool_argument('--complete-while-typing', default=True)
+        add_bool_argument('--complete-indirect-tags', default=True)
+        add_bool_argument('--complete-indirect-projects', default=True)
+        add_bool_argument('--complete-show-meta-always', default=True)
 
         return ITask(parser.parse_args()).loop()
 
@@ -94,13 +141,8 @@ class ITask(object):
         print_formatted_text(f">>> {msg}")
 
     def __init__(self, cl_args):
-        self._macros = {f"{cl_args.macro_prefix}{k}": v for k, v in {
-            'inbox-add': self.macro_inbox_add,
-            'inbox-review': self.macro_inbox_review,
-            'add': self.macro_add,
-            'iter': self.macro_iter,
-            'edit': self.macro_edit,
-        }.items()}
+        self._macros = {f"{Macro.prefix}{macro.name}": macro
+                        for macro in map(self.__getattribute__, dir(self)) if isinstance(macro, Macro)}
 
         self._completer = ITaskCompleter(self._macros,
                                          indirect_tags=cl_args.complete_indirect_tags,
@@ -135,6 +177,7 @@ class ITask(object):
                                       display_completions_in_columns=self._cl_args.complete_show_meta_always,
                                       complete_while_typing=self._cl_args.complete_while_typing))
 
+    @Macro.wrapper(name='add', display=f'{Macro.prefix}add CMDs', meta='prompt `add CMDs ...` until aborted')
     def macro_add(self, name, *args, pre_report="list"):
         task_exec(*args, pre_report)
         cmds = ("add", *args)
@@ -145,6 +188,7 @@ class ITask(object):
                 continue
             task_exec(*cmds, *inp)
 
+    @Macro.wrapper(name='iter', display=f'{Macro.prefix}iter FILTERs', meta='prompt for each task in selection')
     def macro_iter(self, name, *args, pre_report="list", per_report="information", post_callback=None):
         tids = task_get_lines(*args, "_ids")
         if not tids:
@@ -163,13 +207,19 @@ class ITask(object):
             # TODO show only modifications?
             task_exec(per_report, tid)
 
+    @Macro.wrapper(name='inbox-add', display=f'{Macro.prefix}inbox-add CMDs',
+                   meta='prompt to add inbox tasks until aborted')
     def macro_inbox_add(self, name, *args, pre_report="list"):
         self.macro_add(name, self._pos_inbox_tag, *args, pre_report=pre_report)
 
+    @Macro.wrapper(name='inbox-review', display=f'{Macro.prefix}inbox-review FILTERs',
+                   meta='iterate inbox tasks, removing tag afterwards')
     def macro_inbox_review(self, name, *args, pre_report="list", per_report="information"):
         self.macro_iter(name, self._pos_inbox_tag, *args, pre_report=pre_report, per_report=per_report,
                         post_callback=lambda tid: task_exec(tid, "modify", self._neg_inbox_tag, output=False))
 
+    @Macro.wrapper(name='edit', display=f'{Macro.prefix}edit FILTERs',
+                   meta='iterate selected tasks and in-place edit description')
     def macro_edit(self, name, *args, pre_report="list"):
         tids = task_get_lines(*args, "_ids")
         if not tids:
@@ -195,7 +245,7 @@ class ITask(object):
                 try:
                     inp = self.prompt("task> ")
                     try:
-                        if inp and inp[0].startswith(self._cl_args.macro_prefix):
+                        if inp and inp[0].startswith(Macro.prefix):
                             (macro_name, *args) = inp
                             if macro_name in self._macros:
                                 try:
