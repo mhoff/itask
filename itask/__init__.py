@@ -5,7 +5,7 @@ import prompt_toolkit
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.completion import Completer, Completion
 
-from itask.task import task_exec, task_get, task_get_lines, TaskError
+from itask.task import TaskError, TaskHelper
 from itask.config import Config
 
 if prompt_toolkit.__version__ >= '2.0.0':
@@ -26,11 +26,13 @@ class ITaskCompleter(Completer):
         'delete': 'delete [IDs]',
     }
 
-    def __init__(self, macros, indirect_tags, indirect_projects):
+    def __init__(self, task, macros, indirect_tags, indirect_projects):
+        self._task = task
+
         self._indirect_tags = indirect_tags
         self._indirect_projects = indirect_projects
 
-        cmds = [line.split(':') for line in task_get_lines('_zshcommands')]
+        cmds = [line.split(':') for line in self._task.fetch_lines('_zshcommands')]
         self._cmds = [
             self._completion(cmd, display=self.command_signature.get(cmd), meta=f"[{category}] {description}")
             for (cmd, category, description) in cmds
@@ -56,11 +58,11 @@ class ITaskCompleter(Completer):
     def _update_cache(self):
         # TODO async
         self._projects = {
-            prefix: [self._completion(f'{prefix}{project}') for project in task_get_lines("_projects")]
+            prefix: [self._completion(f'{prefix}{project}') for project in self._task.fetch_lines("_projects")]
             for prefix in self._project_prefixes
         }
 
-        tags = list(filter(lambda t: not all(c.isupper() for c in t), task_get_lines("_tags")))
+        tags = list(filter(lambda t: not all(c.isupper() for c in t), self._task.fetch_lines("_tags")))
         self._pos_tags = [self._completion(f'+{tag}') for tag in tags]
         self._neg_tags = [self._completion(f'-{tag}') for tag in tags]
 
@@ -138,10 +140,12 @@ class ITask(object):
         return ITask(cfg.args).loop()
 
     def __init__(self, _cfg):
+        self._task = TaskHelper(bin_path=_cfg.task_bin, rc_path=_cfg.task_rc)
+
         self._macros = {f"{Macro.prefix}{macro.name}": macro
                         for macro in map(self.__getattribute__, dir(self)) if isinstance(macro, Macro)}
 
-        self._completer = ITaskCompleter(self._macros,
+        self._completer = ITaskCompleter(self._task, self._macros,
                                          indirect_tags=_cfg.complete_expand_tags,
                                          indirect_projects=_cfg.complete_expand_projects)
 
@@ -179,13 +183,13 @@ class ITask(object):
                                       complete_while_typing=self._cfg.complete_while_typing))
 
     def _pre_report(self, *args):
-        task_exec(*args, self._cfg.macro_selection_pre_report)
+        self._task.run(*args, self._cfg.macro_selection_pre_report)
 
     def _per_report(self, *args):
-        task_exec(*args, self._cfg.macro_selection_per_report)
+        self._task.run(*args, self._cfg.macro_selection_per_report)
 
     def _post_report(self, *args):
-        task_exec(*args, self._cfg.macro_selection_post_report)
+        self._task.run(*args, self._cfg.macro_selection_post_report)
 
     @Macro.wrapper(name='add', display=f'{Macro.prefix}add CMDs', meta='prompt `add CMDs ...` until aborted')
     def macro_add(self, name, *args):
@@ -196,11 +200,11 @@ class ITask(object):
             if len(inp) == 0:
                 self.error("empty input")
                 continue
-            task_exec(*cmds, *inp)
+            self._task.run(*cmds, *inp)
 
     @Macro.wrapper(name='iter', display=f'{Macro.prefix}iter FILTERs', meta='prompt for each task in selection')
     def macro_iter(self, name, *args, post_callback=None):
-        tids = task_get_lines(*args, "_ids")
+        tids = self._task.fetch_lines(*args, "_ids")
         if not tids:
             return
         self._pre_report(*args)
@@ -211,7 +215,7 @@ class ITask(object):
             # TODO handle keyboard interrupt properly
             inp = self.prompt(f"task {' '.join(cmds)}> ", rmessage=name)
             if len(inp) > 0:
-                task_exec(*cmds, *inp)
+                self._task.run(*cmds, *inp)
             if post_callback:
                 post_callback(tid)
             # TODO show only modifications?
@@ -226,23 +230,23 @@ class ITask(object):
                    meta='iterate inbox tasks, removing tag afterwards')
     def macro_inbox_review(self, name, *args):
         self.macro_iter(name, *self._pos_inbox_tags, *args,
-                        post_callback=lambda tid: task_exec(tid, "modify", *self._neg_inbox_tags, output=False))
+                        post_callback=lambda tid: self._task.run(tid, "modify", *self._neg_inbox_tags, show=False))
 
     @Macro.wrapper(name='edit', display=f'{Macro.prefix}edit FILTERs',
                    meta='iterate selected tasks and in-place edit description')
     def macro_edit(self, name, *args):
-        tids = task_get_lines(*args, "_ids")
+        tids = self._task.fetch_lines(*args, "_ids")
         if not tids:
             return
         self._pre_report(*args)
         for tid in tids:
             self._per_report(tid)
-            descr = task_get("_get", f"{tid}.description")
+            descr = self._task.fetch("_get", f"{tid}.description")
             cmds = [tid, "modify"]
             try:
                 inp = self.prompt(f"task {' '.join(cmds)}> ", rmessage=name, default=descr)
                 if len(inp) > 0:
-                    task_exec(tid, *cmds, *inp)
+                    self._task.run(tid, *cmds, *inp)
             except KeyboardInterrupt:
                 # TODO not very intuitive behaviour?
                 self.print("skipping edit")
@@ -266,7 +270,7 @@ class ITask(object):
                                 self.error("unknown macro")
                                 continue
                         else:
-                            task_exec(*inp)
+                            self._task.run(*inp)
                     except TaskError as e:
                         self.error(str(e))
                 except KeyboardInterrupt:

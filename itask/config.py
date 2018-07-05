@@ -48,6 +48,8 @@ class Config:
 
         grp = parser.add_argument_group('general')
         grp.add_argument('-v', '--verbose', action='store_true')
+        grp.add_argument('--task-rc', type=str)
+        grp.add_argument('--task-bin', type=str, default='task')
 
         grp = parser.add_argument_group('auto-complete')
         add_bool(grp, 'complete-while-typing', True,
