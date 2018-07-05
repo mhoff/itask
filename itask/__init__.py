@@ -20,7 +20,7 @@ else:
 
 
 class ITaskCompleter(Completer):
-    command_synopsis = {
+    command_signature = {
         'add': 'add [proj:...] [due:...] [+TAGs] TEXT',
         'info': 'info [IDs]',
         'delete': 'delete [IDs]',
@@ -32,7 +32,7 @@ class ITaskCompleter(Completer):
 
         cmds = [line.split(':') for line in task_get_lines('_zshcommands')]
         self._cmds = [
-            self._completion(cmd, display=self.command_synopsis.get(cmd), meta=f"[{category}] {description}")
+            self._completion(cmd, display=self.command_signature.get(cmd), meta=f"[{category}] {description}")
             for (cmd, category, description) in cmds
         ]
 
