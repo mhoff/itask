@@ -172,7 +172,8 @@ class ITask(object):
     def prompt(self, message, default="", rmessage=None):
         if prompt_toolkit.__version__ >= '2.0.0':
             gen_rprompt = None if rmessage is None else (lambda: f'macro: {rmessage}')
-            return shlex.split(self._prompt_session.prompt(message, default, rprompt=gen_rprompt))
+            # TODO https://github.com/jonathanslenders/python-prompt-toolkit/issues/665
+            return shlex.split(self._prompt_session.prompt(message, default=default, rprompt=gen_rprompt))
         else:
             gen_rprompt = None if rmessage is None else (lambda _: [(Token, ' '),
                                                                     (Token.RPrompt, f'macro: {rmessage}')])
@@ -241,10 +242,10 @@ class ITask(object):
         self._pre_report(*args)
         for tid in tids:
             self._per_report(tid)
-            descr = self._task.fetch("_get", f"{tid}.description")
             cmds = [tid, "modify"]
             try:
-                inp = self.prompt(f"task {' '.join(cmds)}> ", rmessage=name, default=descr)
+                inp = self.prompt(f"task {' '.join(cmds)}> ", rmessage=name,
+                                  default=self._task.fetch("_get", f"{tid}.description"))
                 if len(inp) > 0:
                     self._task.run(tid, *cmds, *inp)
             except KeyboardInterrupt:
