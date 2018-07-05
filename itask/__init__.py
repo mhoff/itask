@@ -1,11 +1,12 @@
-import argparse
 import shlex
+import logging
 
 import prompt_toolkit
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.completion import Completer, Completion
 
-from itask.utils import task_exec, task_get, task_get_lines, TaskError
+from itask.task import task_exec, task_get, task_get_lines, TaskError
+from itask.config import Config
 
 if prompt_toolkit.__version__ >= '2.0.0':
     from prompt_toolkit import PromptSession, print_formatted_text
@@ -116,25 +117,6 @@ class Macro(object):
 
 
 class ITask(object):
-
-    @staticmethod
-    def main():
-        parser = argparse.ArgumentParser()
-
-        def add_bool_argument(opt, default):
-            dest = opt[2:].replace('-', '_')
-            parser.add_argument(opt, dest=dest, action='store_true')
-            parser.add_argument(f'{opt[:2]}no-{opt[2:]}', dest=dest, action='store_false')
-            parser.set_defaults(**{dest: default})
-
-        parser.add_argument("--inbox-tag", type=str, default="inbox")
-        add_bool_argument('--complete-while-typing', default=True)
-        add_bool_argument('--complete-indirect-tags', default=True)
-        add_bool_argument('--complete-indirect-projects', default=True)
-        add_bool_argument('--complete-show-meta-always', default=True)
-
-        return ITask(parser.parse_args()).loop()
-
     @staticmethod
     def error(msg):
         print_formatted_text(f">>> [ERROR] {msg}")
@@ -143,20 +125,32 @@ class ITask(object):
     def print(msg):
         print_formatted_text(f">>> {msg}")
 
-    def __init__(self, cl_args):
+    @staticmethod
+    def main():
+        logging.basicConfig(format='>>> [%(levelname)s] %(message)s')
+
+        cfg = Config()
+
+        if not cfg.has_config_file():
+            ITask.print(f"no config file present; writing current configuration to {cfg.config_path}")
+            cfg.write_config_file()
+
+        return ITask(cfg.args).loop()
+
+    def __init__(self, _cfg):
         self._macros = {f"{Macro.prefix}{macro.name}": macro
                         for macro in map(self.__getattribute__, dir(self)) if isinstance(macro, Macro)}
 
         self._completer = ITaskCompleter(self._macros,
-                                         indirect_tags=cl_args.complete_indirect_tags,
-                                         indirect_projects=cl_args.complete_indirect_projects)
+                                         indirect_tags=_cfg.complete_expand_tags,
+                                         indirect_projects=_cfg.complete_expand_projects)
 
         # TODO persist history
         if prompt_toolkit.__version__ >= '2.0.0':
             # TODO verify display_completions_in_columns does work
-            complete_style = None if cl_args.complete_show_meta_always else CompleteStyle.MULTI_COLUMN
+            complete_style = None if _cfg.complete_display == '2col' else CompleteStyle.MULTI_COLUMN
             self._prompt_session = PromptSession(completer=self._completer,
-                                                 complete_while_typing=cl_args.complete_while_typing,
+                                                 complete_while_typing=_cfg.complete_while_typing,
                                                  complete_style=complete_style,
                                                  style=Style.from_dict({
                                                      'rprompt': 'bg:#ff0066 #ffffff',
@@ -167,9 +161,9 @@ class ITask(object):
                 Token.RPrompt: 'bg:#ff0066 #ffffff',
             })
 
-        self._cl_args = cl_args
-        self._pos_inbox_tag = f"+{cl_args.inbox_tag}"
-        self._neg_inbox_tag = f"-{cl_args.inbox_tag}"
+        self._cfg = _cfg
+        self._pos_inbox_tags = [f"+{tag}" for tag in _cfg.gtd_capture_tags]
+        self._neg_inbox_tags = [f"-{tag}" for tag in _cfg.gtd_capture_tags]
 
     def prompt(self, message, default="", rmessage=None):
         if prompt_toolkit.__version__ >= '2.0.0':
@@ -181,12 +175,21 @@ class ITask(object):
             return shlex.split(prompt(message, default=default, completer=self._completer,
                                       history=self._history,
                                       get_rprompt_tokens=gen_rprompt, style=self._prompt_style,
-                                      display_completions_in_columns=self._cl_args.complete_show_meta_always,
-                                      complete_while_typing=self._cl_args.complete_while_typing))
+                                      display_completions_in_columns=self._cfg.complete_display == 'multi',
+                                      complete_while_typing=self._cfg.complete_while_typing))
+
+    def _pre_report(self, *args):
+        task_exec(*args, self._cfg.macro_selection_pre_report)
+
+    def _per_report(self, *args):
+        task_exec(*args, self._cfg.macro_selection_per_report)
+
+    def _post_report(self, *args):
+        task_exec(*args, self._cfg.macro_selection_post_report)
 
     @Macro.wrapper(name='add', display=f'{Macro.prefix}add CMDs', meta='prompt `add CMDs ...` until aborted')
-    def macro_add(self, name, *args, pre_report="list"):
-        task_exec(*args, pre_report)
+    def macro_add(self, name, *args):
+        self._pre_report(*args)
         cmds = ("add", *args)
         while True:
             inp = self.prompt(f"task {' '.join(cmds)}> ", rmessage=name)
@@ -196,14 +199,14 @@ class ITask(object):
             task_exec(*cmds, *inp)
 
     @Macro.wrapper(name='iter', display=f'{Macro.prefix}iter FILTERs', meta='prompt for each task in selection')
-    def macro_iter(self, name, *args, pre_report="list", per_report="information", post_callback=None):
+    def macro_iter(self, name, *args, post_callback=None):
         tids = task_get_lines(*args, "_ids")
         if not tids:
             return
-        task_exec(*args, pre_report)
+        self._pre_report(*args)
         # TODO use progress bar?
         for tid in tids:
-            task_exec(per_report, tid)
+            self._per_report(*args)
             cmds = [tid]
             # TODO handle keyboard interrupt properly
             inp = self.prompt(f"task {' '.join(cmds)}> ", rmessage=name)
@@ -212,28 +215,28 @@ class ITask(object):
             if post_callback:
                 post_callback(tid)
             # TODO show only modifications?
-            task_exec(per_report, tid)
+            self._per_report(tid)
 
     @Macro.wrapper(name='inbox-add', display=f'{Macro.prefix}inbox-add CMDs',
                    meta='prompt to add inbox tasks until aborted')
-    def macro_inbox_add(self, name, *args, pre_report="list"):
-        self.macro_add(name, self._pos_inbox_tag, *args, pre_report=pre_report)
+    def macro_inbox_add(self, name, *args):
+        self.macro_add(name, *self._pos_inbox_tags, *args)
 
     @Macro.wrapper(name='inbox-review', display=f'{Macro.prefix}inbox-review FILTERs',
                    meta='iterate inbox tasks, removing tag afterwards')
-    def macro_inbox_review(self, name, *args, pre_report="list", per_report="information"):
-        self.macro_iter(name, self._pos_inbox_tag, *args, pre_report=pre_report, per_report=per_report,
-                        post_callback=lambda tid: task_exec(tid, "modify", self._neg_inbox_tag, output=False))
+    def macro_inbox_review(self, name, *args):
+        self.macro_iter(name, *self._pos_inbox_tags, *args,
+                        post_callback=lambda tid: task_exec(tid, "modify", *self._neg_inbox_tags, output=False))
 
     @Macro.wrapper(name='edit', display=f'{Macro.prefix}edit FILTERs',
                    meta='iterate selected tasks and in-place edit description')
-    def macro_edit(self, name, *args, pre_report="list"):
+    def macro_edit(self, name, *args):
         tids = task_get_lines(*args, "_ids")
         if not tids:
             return
-        task_exec(*args, pre_report)
+        self._pre_report(*args)
         for tid in tids:
-            task_exec("information", tid)
+            self._per_report(tid)
             descr = task_get("_get", f"{tid}.description")
             cmds = [tid, "modify"]
             try:
@@ -243,7 +246,7 @@ class ITask(object):
             except KeyboardInterrupt:
                 # TODO not very intuitive behaviour?
                 self.print("skipping edit")
-            task_exec("information", tid)
+            self._per_report(tid)
 
     def loop(self):
         print_formatted_text("Welcome to itask, an interactive shell for task")

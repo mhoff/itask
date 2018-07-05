@@ -5,11 +5,11 @@ with open("README.md", "r") as fh:
 
 setup(
     name="itask",
-    version="0.1.6",
+    version="0.2",
     packages=find_packages(),
     install_requires=[
-        'markdown',  # TODO necessary?
         'prompt_toolkit>=1.0.15<=2.0.3',
+        'configargparse>=0.13.0',
     ],
     author="Michael Hoff",
     author_email="mail@michael-hoff.net",
@@ -28,10 +28,11 @@ setup(
     long_description=long_description,
     classifiers=[
         'Development Status :: 4 - Beta'
+        'Programming Language :: Python',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
-        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)'
-        'Topic :: Utilities'
+        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
+        'Topic :: Utilities',
     ],
     project_urls={
         "Bug Tracker": "https://github.com/mhoff/itask/issues",
