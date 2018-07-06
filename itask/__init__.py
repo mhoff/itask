@@ -183,6 +183,7 @@ class ITask(object):
         self.macro_iter(name, *self._pos_inbox_tags, *args,
                         post_callback=lambda tid: self._task.run(tid, "modify",
                                                                  *self._neg_inbox_tags, show=False))
+
     @staticmethod
     def _review_filter(uda, interval):
         return f'({uda}.none: or {uda}.before:now-{interval}) and (+PENDING or +WAITING)'
@@ -217,6 +218,9 @@ class ITask(object):
             self._per_report(tid)
             cmds = [tid, "modify"]
             try:
+                logger.warning("in-place edit currently broken because of "
+                               "https://github.com/jonathanslenders/"
+                               "python-prompt-toolkit/issues/665")
                 inp = self.prompt(f"task {' '.join(cmds)}> ", rmessage=name,
                                   default=self._task.fetch("_get", f"{tid}.description"))
                 if len(inp) > 0:

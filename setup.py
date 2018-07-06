@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="itask",
-    version="0.2",
+    version="0.3",
     packages=find_packages(),
     install_requires=[
         'prompt_toolkit>=1.0.15<=2.0.3',
