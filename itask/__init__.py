@@ -6,6 +6,7 @@ from prompt_toolkit.history import InMemoryHistory
 
 from itask.task import TaskError, TaskHelper
 from itask.config import Config
+from itask.utils import ObjectDecorator
 from itask.completer import ITaskCompleter
 
 if prompt_toolkit.__version__ >= '2.0.0':
@@ -19,26 +20,14 @@ else:
     from prompt_toolkit.styles import style_from_dict
 
 
-class Macro(object):
+class Macro(ObjectDecorator):
     prefix = '%'
 
-    def __init__(self, func, name, display, meta):
-        self.func = func
+    def __init__(self, name, display, meta):
+        super(Macro, self).__init__()
         self.name = name
         self.display = display
         self.meta = meta
-
-    def __get__(self, *args, **kwargs):
-        # update func reference to method object
-        self.func = self.func.__get__(*args, **kwargs)
-        return self
-
-    def __call__(self, *args, **kwargs):
-        self.func(*args, **kwargs)
-
-    @staticmethod
-    def wrapper(name, display=None, meta=None):
-        return lambda func: Macro(func, name, display, meta)
 
 
 class ITask(object):
@@ -115,7 +104,7 @@ class ITask(object):
     def _post_report(self, *args):
         self._task.run(*args, self._cfg.macro_selection_post_report)
 
-    @Macro.wrapper(name='add', display=f'{Macro.prefix}add CMDs', meta='prompt `add CMDs ...` until aborted')
+    @Macro(name='add', display=f'{Macro.prefix}add CMDs', meta='prompt `add CMDs ...` until aborted')
     def macro_add(self, name, *args):
         self._pre_report(*args)
         cmds = ("add", *args)
@@ -126,7 +115,7 @@ class ITask(object):
                 continue
             self._task.run(*cmds, *inp)
 
-    @Macro.wrapper(name='iter', display=f'{Macro.prefix}iter FILTERs', meta='prompt for each task in selection')
+    @Macro(name='iter', display=f'{Macro.prefix}iter FILTERs', meta='prompt for each task in selection')
     def macro_iter(self, name, *args, post_callback=None):
         tids = self._task.fetch_lines(*args, "_ids")
         if not tids:
@@ -145,19 +134,18 @@ class ITask(object):
             # TODO show only modifications?
             self._per_report(tid)
 
-    @Macro.wrapper(name='inbox-add', display=f'{Macro.prefix}inbox-add CMDs',
-                   meta='prompt to add inbox tasks until aborted')
+    @Macro(name='inbox-add', display=f'{Macro.prefix}inbox-add CMDs', meta='prompt to add inbox tasks until aborted')
     def macro_inbox_add(self, name, *args):
         self.macro_add(name, *self._pos_inbox_tags, *args)
 
-    @Macro.wrapper(name='inbox-review', display=f'{Macro.prefix}inbox-review FILTERs',
-                   meta='iterate inbox tasks, removing tag afterwards')
+    @Macro(name='inbox-review', display=f'{Macro.prefix}inbox-review FILTERs',
+           meta='iterate inbox tasks, removing tag afterwards')
     def macro_inbox_review(self, name, *args):
         self.macro_iter(name, *self._pos_inbox_tags, *args,
                         post_callback=lambda tid: self._task.run(tid, "modify", *self._neg_inbox_tags, show=False))
 
-    @Macro.wrapper(name='edit', display=f'{Macro.prefix}edit FILTERs',
-                   meta='iterate selected tasks and in-place edit description')
+    @Macro(name='edit', display=f'{Macro.prefix}edit FILTERs',
+           meta='iterate selected tasks and in-place edit description')
     def macro_edit(self, name, *args):
         tids = self._task.fetch_lines(*args, "_ids")
         if not tids:
