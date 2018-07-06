@@ -23,10 +23,10 @@ else:
 class Macro(ObjectDecorator):
     prefix = '%'
 
-    def __init__(self, name, display, meta):
+    def __init__(self, name, signature, meta):
         super(Macro, self).__init__()
         self.name = name
-        self.display = display
+        self.display = f'{Macro.prefix}{name} {signature}'
         self.meta = meta
 
 
@@ -104,7 +104,7 @@ class ITask(object):
     def _post_report(self, *args):
         self._task.run(*args, self._cfg.macro_selection_post_report)
 
-    @Macro(name='add', display=f'{Macro.prefix}add CMDs', meta='prompt `add CMDs ...` until aborted')
+    @Macro(name='add', signature='CMDs', meta='prompt `add CMDs ...` until aborted')
     def macro_add(self, name, *args):
         self._pre_report(*args)
         cmds = ("add", *args)
@@ -115,7 +115,7 @@ class ITask(object):
                 continue
             self._task.run(*cmds, *inp)
 
-    @Macro(name='iter', display=f'{Macro.prefix}iter FILTERs', meta='prompt for each task in selection')
+    @Macro(name='iter', signature='FILTERs', meta='prompt for each task in selection')
     def macro_iter(self, name, *args, post_callback=None):
         tids = self._task.fetch_lines(*args, "_ids")
         if not tids:
@@ -134,18 +134,25 @@ class ITask(object):
             # TODO show only modifications?
             self._per_report(tid)
 
-    @Macro(name='inbox-add', display=f'{Macro.prefix}inbox-add CMDs', meta='prompt to add inbox tasks until aborted')
+    @Macro(name='gtd-capture', signature='CMDs', meta='prompt to add new tasks until aborted')
+    def macro_gtd_capture(self, name, *args):
+        self.macro_add(name, *self._pos_inbox_tags, *args)
+
+    @Macro(name='gtd-process', signature='CMDs', meta='process captured tasks')
+    def macro_gtd_clarify(self, name, *args):
+        self.macro_iter(name, *self._pos_inbox_tags, *args,
+                        post_callback=lambda tid: self._task.run(tid, "modify", *self._neg_inbox_tags, show=False))
+
+    @Macro(name='inbox-add', signature='CMDs', meta='prompt to add inbox tasks until aborted')
     def macro_inbox_add(self, name, *args):
         self.macro_add(name, *self._pos_inbox_tags, *args)
 
-    @Macro(name='inbox-review', display=f'{Macro.prefix}inbox-review FILTERs',
-           meta='iterate inbox tasks, removing tag afterwards')
+    @Macro(name='inbox-review', signature='FILTERs', meta='iterate inbox tasks, removing tag afterwards')
     def macro_inbox_review(self, name, *args):
         self.macro_iter(name, *self._pos_inbox_tags, *args,
                         post_callback=lambda tid: self._task.run(tid, "modify", *self._neg_inbox_tags, show=False))
 
-    @Macro(name='edit', display=f'{Macro.prefix}edit FILTERs',
-           meta='iterate selected tasks and in-place edit description')
+    @Macro(name='edit', signature=f'FILTERs', meta='iterate selected tasks and in-place edit description')
     def macro_edit(self, name, *args):
         tids = self._task.fetch_lines(*args, "_ids")
         if not tids:
