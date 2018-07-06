@@ -5,6 +5,8 @@ import logging
 
 from itask import utils
 
+logger = logging.getLogger('itask')
+
 
 class Config:
     default_config_path = os.path.join('~', '.itaskrc')
@@ -27,6 +29,19 @@ class Config:
         return value
 
     @staticmethod
+    def _type_uda(value):
+        # TODO check against available UDAs
+        if len(value) == 0 or not re.fullmatch(r'[a-zA-Z_.]+', value):
+            raise configargparse.ArgumentTypeError(f"{value} is not a valid UDA")
+        return value
+
+    def _type_rel_date(value):
+        # TODO check date format properly
+        if len(value) == 0 or not re.fullmatch(r'[a-zA-Z0-9\+]+', value):
+            raise configargparse.ArgumentTypeError(f"{value} is not a valid date")
+        return value
+
+    @staticmethod
     def _create_parser():
         parser = configargparse.ArgParser(default_config_files=[Config.default_config_path])
         parser.add_argument('-c', '--config', is_config_file=True, help='custom config file path')
@@ -42,12 +57,15 @@ class Config:
 
             dest = opt.replace('-', '_')
             excl = parser.add_mutually_exclusive_group()
-            excl.add_argument(f'--{opt}', type=str2bool, const=True, nargs='?', metavar='FLAG', dest=dest)
+            excl.add_argument(f'--{opt}', type=str2bool, const=True, nargs='?',
+                              metavar='FLAG', dest=dest)
             excl.add_argument(f'--no-{opt}', action='store_false', dest=dest, help=help)
             excl.set_defaults(**{dest: default})
 
         grp = parser.add_argument_group('general')
-        grp.add_argument('-v', '--verbose', action='store_true')
+        excl = grp.add_mutually_exclusive_group()
+        excl.add_argument('-v', '--verbose', action='store_true', default=False)
+        excl.add_argument('-d', '--debug', action='store_true', default=False)
         grp.add_argument('--task-rc', type=str)
         grp.add_argument('--task-bin', type=str, default='task')
 
@@ -62,11 +80,17 @@ class Config:
                          help='either display completions side-by-side with their explanation,'
                               'or more completions at once')
 
-        grp = parser.add_argument_group('getting-things-done (https://gettingthingsdone.com/five-steps/)')
+        grp = parser.add_argument_group('getting-things-done'
+                                        ' (https://gettingthingsdone.com/five-steps/)')
         grp.add_argument('--gtd-capture-tags', default=['inbox'], type=Config._type_tag, nargs='+',
                          help="filter tags used in GTD macros. "
                               # TODO https://github.com/bw2/ConfigArgParse/issues/95
-                              "WARNING: tag-lists can not yet be saved, due to a bug in ConfigArgParse")
+                              "WARNING: tag-lists can not yet be saved,"
+                              " due to a bug in ConfigArgParse")
+        grp.add_argument('--gtd-review-uda', default='reviewed', type=Config._type_uda,
+                         help="UDA used to store the last review time")
+        grp.add_argument('--gtd-review-interval', default='1week', type=Config._type_rel_date,
+                         help="minimum interval for reviewing tasks")
 
         grp = parser.add_argument_group('macros')
         grp.add_argument('--macro-selection-pre-report', default='ls', type=Config._type_report,
@@ -81,13 +105,12 @@ class Config:
     def args(self):
         if self._args is None:
             self._args = self._parser.parse_args()
-            if self._args.verbose:
-                print(self._args)
         return self._args
 
     @property
     def config_path(self):
-        return os.path.expanduser(self.args.config if self.args.config is not None else Config.default_config_path)
+        return os.path.expanduser(self.args.config if self.args.config is not None
+                                  else Config.default_config_path)
 
     def has_config_file(self):
         return os.path.exists(self.config_path)
@@ -96,7 +119,9 @@ class Config:
         # TODO https://github.com/bw2/ConfigArgParse/issues/95
         not_saveable = {"gtd_capture_tags", "config"}.intersection(self._args.__dict__.keys())
         if not_saveable:
-            logging.warning(f"options ({', '.join(map(lambda s: s.replace('_', '-'), not_saveable))}) can not be saved")
+            logging.warning("options ({}) can not be saved".format(
+                ', '.join(map(lambda s: s.replace('_', '-'), not_saveable)))
+            )
         args = configargparse.Namespace(**{k: v for k, v in self.args.__dict__.items()
                                            if k not in not_saveable})
 

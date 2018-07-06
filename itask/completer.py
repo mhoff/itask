@@ -1,4 +1,7 @@
+import logging
 from prompt_toolkit.completion import Completer, Completion
+
+logger = logging.getLogger('itask')
 
 
 class ITaskCompleter(Completer):
@@ -16,7 +19,8 @@ class ITaskCompleter(Completer):
 
         cmds = [line.split(':') for line in self._task.fetch_lines('_zshcommands')]
         self._cmds = [
-            self._completion(cmd, display=self.command_signature.get(cmd), meta=f"[{category}] {description}")
+            self._completion(cmd, display=self.command_signature.get(cmd),
+                             meta=f"[{category}] {description}")
             for (cmd, category, description) in cmds
         ]
 
@@ -25,7 +29,8 @@ class ITaskCompleter(Completer):
             for key, macro in macros.items()
         ]
 
-        self._project_prefixes = [f'{prefix}:' for prefix in ['pro', 'proj', 'proje', 'projec', 'project']]
+        self._project_prefixes = [f'{prefix}:'
+                                  for prefix in ['pro', 'proj', 'proje', 'projec', 'project']]
         self._projects = {}
         self._pos_tags = []
         self._neg_tags = []
@@ -40,11 +45,13 @@ class ITaskCompleter(Completer):
     def _update_cache(self):
         # TODO async
         self._projects = {
-            prefix: [self._completion(f'{prefix}{project}') for project in self._task.fetch_lines("_projects")]
+            prefix: [self._completion(f'{prefix}{project}')
+                     for project in self._task.fetch_lines("_projects")]
             for prefix in self._project_prefixes
         }
 
-        tags = list(filter(lambda t: not all(c.isupper() for c in t), self._task.fetch_lines("_tags")))
+        tags = list(filter(lambda t: not all(c.isupper() for c in t),
+                           self._task.fetch_lines("_tags")))
         self._pos_tags = [self._completion(f'+{tag}') for tag in tags]
         self._neg_tags = [self._completion(f'-{tag}') for tag in tags]
 
@@ -58,7 +65,8 @@ class ITaskCompleter(Completer):
                 yield from self._pos_tags
                 yield from self._neg_tags
             elif len(word) == 0:
-                yield self._completion(tag_prefix, display=f'{tag_prefix}...', meta=f'{label} tag selector')
+                yield self._completion(tag_prefix, display=f'{tag_prefix}...',
+                                       meta=f'{label} tag selector')
 
         pref_match = [prefix for prefix in self._project_prefixes
                       if word.startswith(prefix)]

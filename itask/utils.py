@@ -1,12 +1,17 @@
 import contextlib
 import os
+import logging
+
+logger = logging.getLogger('itask')
 
 
 @contextlib.contextmanager
 def suppress_stdout():
+    logger.debug("suppressing stdout")
     with open(os.devnull, 'w') as devnull:
         with contextlib.redirect_stdout(devnull):
             yield
+    logger.debug("re-enabling stdout")
 
 
 class ObjectDecorator(object):
